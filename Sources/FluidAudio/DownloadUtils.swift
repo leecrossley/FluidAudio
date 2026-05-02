@@ -9,6 +9,37 @@ public class DownloadUtils {
     /// Shared URLSession with registry and proxy configuration
     public static let sharedSession: URLSession = ModelRegistry.configuredSession()
 
+    // overshow fork: offline-only mode. when enforceOffline is true every
+    // public download surface throws FluidAudioOfflineError before touching
+    // the network. applications that bundle their own model assets should
+    // set this at startup and route loading through manual-loading apis
+    // (e.g. MLModel(contentsOf:)) so a corrupt-detected model never falls
+    // back to a hugging face fetch at runtime. nonisolated(unsafe) is
+    // acceptable here because the flag is set once at app startup before
+    // any FluidAudio loaders are touched and is read-only thereafter.
+    nonisolated(unsafe) public static var enforceOffline: Bool = false
+
+    public enum FluidAudioOfflineError: LocalizedError {
+        case networkDisabled(operation: String)
+        case modelMissing(repo: String, missing: [String])
+
+        public var errorDescription: String? {
+            switch self {
+            case .networkDisabled(let operation):
+                return "FluidAudio offline mode: \(operation) blocked"
+            case .modelMissing(let repo, let missing):
+                return
+                    "FluidAudio offline mode: required models missing for \(repo): \(missing.joined(separator: ", "))"
+            }
+        }
+    }
+
+    private static func ensureOnlineAllowed(_ operation: String) throws {
+        if enforceOffline {
+            throw FluidAudioOfflineError.networkDisabled(operation: operation)
+        }
+    }
+
     /// Get HuggingFace token from environment if available.
     /// Supports multiple env vars for compatibility with different HuggingFace tools:
     /// - HF_TOKEN: Official HuggingFace CLI
@@ -34,6 +65,7 @@ public class DownloadUtils {
     /// Fetch data from a URL with HuggingFace authentication if available
     /// Use this for API calls that need auth tokens for private repos or higher rate limits
     public static func fetchWithAuth(from url: URL) async throws -> (Data, URLResponse) {
+        try ensureOnlineAllowed("fetchWithAuth(\(url.absoluteString))")
         let request = authorizedRequest(url: url)
         return try await sharedSession.data(for: request)
     }
@@ -127,6 +159,15 @@ public class DownloadUtils {
                 directory: directory, computeUnits: computeUnits, variant: variant,
                 progressHandler: progressHandler)
         } catch {
+            // overshow fork: never delete cache + re-download in offline mode.
+            // surface the original load failure so the caller can decide.
+            if enforceOffline {
+                logger.warning(
+                    "Offline mode: load failed and re-download blocked. \(error.localizedDescription)"
+                )
+                throw error
+            }
+
             logger.warning("First load failed: \(error.localizedDescription)")
             logger.info("Deleting cache and re-downloading…")
             let repoPath = directory.appendingPathComponent(repo.folderName)
@@ -207,6 +248,17 @@ public class DownloadUtils {
         }
 
         if !allModelsExist {
+            // overshow fork: in offline mode, surface a typed error listing
+            // the missing files instead of attempting a hugging face fetch.
+            if enforceOffline {
+                let missing = Array(
+                    requiredModels.filter { name in
+                        !FileManager.default.fileExists(atPath: repoPath.appendingPathComponent(name).path)
+                    }
+                )
+                logger.error("Offline mode: required models missing at \(repoPath.path): \(missing)")
+                throw FluidAudioOfflineError.modelMissing(repo: repo.folderName, missing: missing)
+            }
             logger.info("Models not found in cache at \(repoPath.path)")
             try await downloadRepo(repo, to: directory, variant: variant, progressHandler: progressHandler)
         } else {
@@ -283,6 +335,7 @@ public class DownloadUtils {
         variant: String? = nil,
         progressHandler: ProgressHandler? = nil
     ) async throws {
+        try ensureOnlineAllowed("downloadRepo(\(repo.folderName))")
         logger.info("Downloading \(repo.folderName) from HuggingFace...")
 
         let repoPath = directory.appendingPathComponent(repo.folderName)
@@ -581,6 +634,7 @@ public class DownloadUtils {
         progressHandler: ProgressHandler? = nil,
         shouldSkip: (@Sendable (String) -> Bool)? = nil
     ) async throws {
+        try ensureOnlineAllowed("downloadSubdirectory(\(repo.folderName)/\(subdirectory))")
         progressHandler?(DownloadProgress(fractionCompleted: 0.0, phase: .listing))
         var filesToDownload: [(path: String, size: Int)] = []
 
@@ -706,6 +760,7 @@ public class DownloadUtils {
         maxAttempts: Int = 4,
         minBackoff: TimeInterval = 1.0
     ) async throws -> Data {
+        try ensureOnlineAllowed("fetchHuggingFaceFile(\(description))")
         var lastError: Error?
         let request = authorizedRequest(url: url)
 
