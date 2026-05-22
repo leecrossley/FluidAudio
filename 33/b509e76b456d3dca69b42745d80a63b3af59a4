@@ -1,0 +1,26 @@
+README.md
+  s_19fe96cdf84db1::t_b9fca907b7c634 229-252
+Sources/FluidAudio/DownloadUtils.swift
+  s_19fe96cdf84db1::t_faa73b73e97648 12-60
+  s_19fe96cdf84db1::t_2a2d33d52c5f7a 276-286
+  s_19fe96cdf84db1::t_824633cab12b17 373
+  s_19fe96cdf84db1::t_06b5e98da7a17f 673
+  s_19fe96cdf84db1::t_d11a426dcad4d2 799
+  s_19fe96cdf84db1::t_07fa0c952bd261 86
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "33b509e76b456d3dca69b42745d80a63b3af59a4",
+  "prompts": {},
+  "sessions": {
+    "s_19fe96cdf84db1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "34a9f813-a65b-4482-938b-d89ef94ecef2",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Lee Crossley <leee@hotmail.co.uk>"
+    }
+  }
+}
